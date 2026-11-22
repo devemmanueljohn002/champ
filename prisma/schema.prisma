@@ -1,0 +1,306 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+  EXPERT
+}
+
+enum QType {
+  MCQ
+  TRUE_FALSE
+  NUMERIC
+  EXPRESSION
+  IMAGE
+}
+
+enum ExamStatus {
+  DRAFT
+  SCHEDULED
+  LIVE
+  PAUSED
+  CLOSED
+  CANCELLED
+}
+
+enum SessionStatus {
+  IN_PROGRESS
+  SUBMITTED
+  EXPIRED
+}
+
+enum QStatus {
+  DRAFT
+  APPROVED
+}
+
+enum RoundType {
+  PRELIM
+  QUARTER
+  SEMI
+  FINAL
+  HEAD_TO_HEAD
+  CLASS_BATTLE
+}
+
+model User {
+  id String @id @default(cuid())
+  loginId String @unique
+  passwordHash String
+  role Role
+  active Boolean @default(true)
+  mustChangePw Boolean @default(false)
+  createdAt DateTime @default(now())
+  student Student?
+  teacher Teacher?
+  admin Administrator?
+  sessions Session[]
+}
+model Administrator {
+  id String @id @default(cuid())
+  userId String @unique
+  user User @relation(fields: [userId], references: [id])
+  fullName String
+}
+model Teacher {
+  id String @id @default(cuid())
+  userId String @unique
+  user User @relation(fields: [userId], references: [id])
+  fullName String
+  classes SchoolClass[]
+}
+model SchoolClass {
+  id String @id @default(cuid())
+  name String @unique
+  category String
+  teacherId String?
+  teacher Teacher? @relation(fields: [teacherId], references: [id])
+  students Student[]
+  exams Examination[]
+  scores ClassScore[]
+}
+model Student {
+  id String @id @default(cuid())
+  userId String @unique
+  user User @relation(fields: [userId], references: [id])
+  studentCode String @unique
+  fullName String
+  gender String?
+  photoUrl String?
+  classId String
+  class SchoolClass @relation(fields: [classId], references: [id])
+  isDemo Boolean @default(false)
+  sessions ExaminationSession[]
+  results ExaminationResult[]
+  participations CompetitionParticipant[]
+  certificates Certificate[]
+  @@index([classId])
+}
+model Subject {
+  id String @id @default(cuid())
+  name String @unique
+  topics Topic[]
+  questions Question[]
+}
+model Topic {
+  id String @id @default(cuid())
+  name String
+  subjectId String
+  subject Subject @relation(fields: [subjectId], references: [id])
+  questions Question[]
+  @@unique([subjectId, name])
+}
+model Question {
+  id String @id @default(cuid())
+  text String
+  type QType @default(MCQ)
+  subjectId String
+  subject Subject @relation(fields: [subjectId], references: [id])
+  topicId String?
+  topic Topic? @relation(fields: [topicId], references: [id])
+  classId String
+  difficulty Difficulty
+  marks Int @default(1)
+  seconds Int?
+  explanation String?
+  imageUrl String?
+  status QStatus @default(DRAFT)
+  isDemo Boolean @default(false)
+  options QuestionOption[]
+  examLinks ExaminationQuestion[]
+  @@index([classId, subjectId, status])
+}
+// isCorrect must NEVER be sent to the browser while an exam is open
+model QuestionOption {
+  id String @id @default(cuid())
+  questionId String
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  label String
+  text String
+  isCorrect Boolean
+  answers StudentAnswer[]
+}
+model CompetitionRound {
+  id String @id @default(cuid())
+  name String
+  type RoundType
+  orderNo Int
+  advanceCount Int?
+  tieBreakers Json?
+  classAggregation String @default("AVG_PERCENT")
+  exams Examination[]
+  participants CompetitionParticipant[]
+  leaderboards Leaderboard[]
+}
+model Examination {
+  id String @id @default(cuid())
+  title String
+  status ExamStatus @default(DRAFT)
+  classId String
+  class SchoolClass @relation(fields: [classId], references: [id])
+  roundId String?
+  round CompetitionRound? @relation(fields: [roundId], references: [id])
+  durationMin Int @default(40)
+  startsAt DateTime
+  endsAt DateTime
+  shuffleQuestions Boolean @default(true)
+  shuffleOptions Boolean @default(true)
+  negativeMarking Boolean @default(false)
+  passMark Int?
+  resultsPublished Boolean @default(false)
+  questions ExaminationQuestion[]
+  sessions ExaminationSession[]
+  results ExaminationResult[]
+  @@index([classId, status])
+}
+model ExaminationQuestion {
+  id String @id @default(cuid())
+  examId String
+  exam Examination @relation(fields: [examId], references: [id], onDelete: Cascade)
+  questionId String
+  question Question @relation(fields: [questionId], references: [id])
+  orderNo Int
+  @@unique([examId, questionId])
+}
+model ExaminationSession {
+  id String @id @default(cuid())
+  examId String
+  exam Examination @relation(fields: [examId], references: [id])
+  studentId String
+  student Student @relation(fields: [studentId], references: [id])
+  startedAt DateTime @default(now())
+  deadlineAt DateTime
+  status SessionStatus @default(IN_PROGRESS)
+  questionOrder Json
+  tabSwitches Int @default(0)
+  answers StudentAnswer[]
+  @@unique([examId, studentId])
+}
+model StudentAnswer {
+  id String @id @default(cuid())
+  sessionId String
+  session ExaminationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  questionId String
+  optionId String?
+  option QuestionOption? @relation(fields: [optionId], references: [id])
+  flagged Boolean @default(false)
+  savedAt DateTime @updatedAt
+  @@unique([sessionId, questionId])
+}
+model ExaminationResult {
+  id String @id @default(cuid())
+  examId String
+  exam Examination @relation(fields: [examId], references: [id])
+  studentId String
+  student Student @relation(fields: [studentId], references: [id])
+  score Float
+  total Float
+  correct Int
+  incorrect Int
+  unanswered Int
+  timeSeconds Int
+  published Boolean @default(false)
+  isDemo Boolean @default(false)
+  @@unique([examId, studentId])
+}
+model CompetitionParticipant {
+  id String @id @default(cuid())
+  roundId String
+  round CompetitionRound @relation(fields: [roundId], references: [id])
+  studentId String
+  student Student @relation(fields: [studentId], references: [id])
+  qualified Boolean @default(false)
+  @@unique([roundId, studentId])
+}
+model Leaderboard {
+  id String @id @default(cuid())
+  roundId String
+  round CompetitionRound @relation(fields: [roundId], references: [id])
+  scope String
+  data Json
+  generatedAt DateTime @default(now())
+}
+model ClassScore {
+  id String @id @default(cuid())
+  classId String
+  class SchoolClass @relation(fields: [classId], references: [id])
+  roundId String?
+  avgPercent Float
+  participants Int
+  points Float @default(0)
+}
+model Certificate {
+  id String @id @default(cuid())
+  code String @unique
+  studentId String
+  student Student @relation(fields: [studentId], references: [id])
+  achievement String
+  issuedAt DateTime @default(now())
+}
+model AuditLog {
+  id String @id @default(cuid())
+  actorId String?
+  action String
+  detail Json?
+  ip String?
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+}
+model SchoolSetting {
+  id String @id @default(cuid())
+  schoolName String
+  contactEmail String?
+  phone String?
+  logoUrl String?
+  settings Json?
+}
+model Announcement {
+  id String @id @default(cuid())
+  title String
+  body String
+  audience String
+  createdAt DateTime @default(now())
+}
+
+model Session {
+  id String @id            // SHA-256 of the cookie token, never the token itself
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([userId])
+}
